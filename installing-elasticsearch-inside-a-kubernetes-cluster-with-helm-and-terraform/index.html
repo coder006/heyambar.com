@@ -1,0 +1,130 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Installing Elasticsearch inside a Kubernetes cluster with Helm and Terraform — Ambar Mehrotra</title><meta name="description" content="Github Repository: tf-helm-kubernetes-elasticsearch Note : This guide uses Terraform for making API calls and state management. If you have helm installed on your machine, you can use that instead for installing the chart. What is Elasticsearch? According to t…"><link rel="canonical" href="https://heyambar.com/installing-elasticsearch-inside-a-kubernetes-cluster-with-helm-and-terraform/"><link rel="stylesheet" href="/styles.css"></head><body><header class="site-header"><a class="brand" href="/">Ambar Mehrotra<span class="brand-mark">/ writing</span></a><nav><a href="/#articles">Articles</a><a href="https://github.com/coder006" rel="noopener">GitHub ↗</a></nav></header><main class="article-shell"><div class="article-kicker"><span>January 1, 2021</span><span>·</span><span>Kubernetes</span></div><h1>Installing Elasticsearch inside a Kubernetes cluster with Helm and Terraform</h1><p class="article-intro">Github Repository: tf-helm-kubernetes-elasticsearch Note : This guide uses Terraform for making API calls and state management. If you have helm installed on your machine, you can use that instead for installing the chart. What is Elasticsearch? According to t…</p><article class="article-body"><p>Github Repository: <a target="_self" rel="noopener noreferrer nofollow" href="https://github.com/coder006/tf-helm-kubernetes-elasticsearch.git">tf-helm-kubernetes-elasticsearch</a></p><blockquote class="editor-blockquote"><p><strong><em>Note</em></strong>: This guide uses Terraform for making API calls and state management. If you have helm installed on your machine, you can use that instead for installing the chart.</p></blockquote><h2>What is Elasticsearch?</h2><p>According to the Elasticsearch website:</p><blockquote class="editor-blockquote"><p>Elasticsearch is a distributed, open source search and analytics engine for all types of data, including textual, numerical, geospatial, structured, and unstructured.</p></blockquote><p>Elasticsearch is generally used as the underlying engine for platforms that perform complex text search, logging, or real-time advanced analytics operations. The ELK stack (Elasticsearch, Logstash, and Kibana) has also become the de facto standard when it comes to logging and it's visualization in container environments.</p><h2>Architecture</h2><p>Before we move forward, let us take a look at the basic architecture of Elasticsearch:</p><div class="react-renderer node-image"><div class="my-4"><div><div class=""><div class="relative"><img alt="Elasticsearch Nodes" title="Elasticsearch Cluster" class="!my-0 max-w-full rounded-lg block mx-auto" src="https://docs.aws.amazon.com/elasticsearch-service/latest/developerguide/images/za-2-az.png" loading="lazy"></div></div></div></div></div><p>The above is an overview of a basic <strong>Elasticsearch Cluster</strong>. As you can see, the cluster is divided into several nodes. A <strong>node</strong> is a server (physical or virtual) that stores some data and is a part of the elasticsearch cluster. A <strong>cluster</strong>, on the other hand, is a collection of several nodes that together form the cluster. Every node in turn can hold multiple shards from one or multiple indices. Different kinds of nodes available in Elasticsearch are <em>Master-eligible node</em>, <em>Data node</em>, <em>Ingest node</em>, and <em>Machine learning node</em>(Not availble in the OSS version). In this article, we will only be looking at the master and data nodes for the sake of simplicity.</p><h3>Master-eligible node</h3><p>A node that has <code>node.master</code> flag set to <code>true</code>, which makes it eligible to be elected as the <em>master node</em> which controls the cluster. One of the <em>master-eligible</em> nodes is elected as the <strong>Master</strong> via the <a target="_self" rel="noopener noreferrer nofollow" href="https://www.elastic.co/guide/en/elasticsearch/reference/current/modules-discovery.html">master election process</a>. Following are few of the functions performed by the <em>master node</em>:</p><ul><li><p>Creating or deleting an index</p></li><li><p>Tracking which nodes are part of the cluster</p></li><li><p>Deciding which shards to allocate to which nodes</p></li></ul><h3>Data node</h3><p>A node that has <code>node.data</code> flag set to <code>true</code>. Data nodes hold the shards that contain the documents you have indexed. These nodes perform several operations that are IO, memory, and CPU extensive in nature. Some of the functions performed by <em>data nodes</em> are:</p><ul><li><p>Data related operations like CRUD</p></li><li><p>Search</p></li><li><p>Aggregations</p></li></ul><hr><h2>Terminology</h2><p>Now that we have a basic idea about the Elasticsearch Architecture, let us see how to Elasticsearch inside a Kubernetes Cluster using Helm and Terraform. Before moving forward, let us go through some basic terminology.</p><p><strong>Kubernetes</strong>: Kubernetes is a portable, extensible, open-source platform for managing containerized workloads and services, that facilitates both declarative configuration and automation</p><p><strong>Helm</strong>: Helm is an application package manager running atop Kubernetes. It allows describing the application structure through convenient helm-charts and managing it with simple commands</p><p><strong>Terraform</strong>: Terraform is a tool for building, changing, and versioning infrastructure safely and efficiently. Terraform can manage existing and popular service providers as well as custom in-house solutions</p><hr><h2>Installation</h2><p>First, let us describe the variables and the default values needed for setting up the Elasticsearch Cluster:</p><h3>Default Values:</h3><div class="react-renderer node-codeBlock"><div class="relative my-4"><div class="overflow-hidden rounded-lg border border-border"><div class="flex items-center justify-between border-b border-border px-3 py-1.5"><div class="flex items-center gap-1"></div></div><pre class="!m-0 overflow-x-auto px-4 py-2 !rounded-none"><code class="text-sm font-mono language-c"><div>variable <span class="hljs-string">"elasticsearch"</span> {
+  type = object({
+    master_node = object({
+      volume_size   = number
+      cpu           = number
+      memory        = number
+    })
+
+    data_node = object({
+      volume_size   = number
+      cpu           = number
+      memory        = number
+    })
+  })
+
+  <span class="hljs-keyword">default</span> = {
+    master_node = {
+      volume_size   = <span class="hljs-number">20</span>
+      cpu           = <span class="hljs-number">1</span>
+      memory        = <span class="hljs-number">1.5</span>
+    }
+    
+    data_node = {
+      volume_size   = <span class="hljs-number">20</span>
+      cpu           = <span class="hljs-number">1</span>
+      memory        = <span class="hljs-number">1.5</span>
+    }
+  }
+}
+
+variable <span class="hljs-string">"kubeconfig_file_path"</span> {
+  type      = <span class="hljs-built_in">string</span>
+  <span class="hljs-keyword">default</span>   = <span class="hljs-string">"/my/file/path"</span>
+}
+<br class="ProseMirror-trailingBreak"></div></code></pre></div></div></div><blockquote class="editor-blockquote"><p>For the sake of simplicity, I will assume that you have a working helm installtion. Although, you can still go over to the <a target="_self" rel="noopener noreferrer nofollow" href="https://github.com/coder006/tf-helm-kubernetes-elasticsearch.git">Github Repository</a> to take a look at how to install helm and tiller onto your Kubernetes cluster using Terraform.</p></blockquote><h3>Terraform Helm Setup</h3><p>This step involves declaring a helm provider and the elasticsearch helm repository to pull the helm chart from</p><div class="react-renderer node-codeBlock"><div class="relative my-4"><div class="overflow-hidden rounded-lg border border-border"><div class="flex items-center justify-between border-b border-border px-3 py-1.5"><div class="flex items-center gap-1"></div></div><pre class="!m-0 overflow-x-auto px-4 py-2 !rounded-none"><code class="text-sm font-mono language-c"><div>provider <span class="hljs-string">"helm"</span> {
+  kubernetes {
+    config_path = var.kubeconfig_file_path
+  }
+  version = <span class="hljs-string">"~&gt; 0.10.4"</span>
+  service_account = kubernetes_service_account.tiller.metadata[<span class="hljs-number">0</span>].name
+  install_tiller = <span class="hljs-literal">true</span>
+}
+
+data <span class="hljs-string">"helm_repository"</span> <span class="hljs-string">"stable"</span> {
+  name = <span class="hljs-string">"elastic"</span>
+  url  = <span class="hljs-string">"https://helm.elastic.co"</span>
+}
+<br class="ProseMirror-trailingBreak"></div></code></pre></div></div></div><h3>Setting up Master Eligible and Data nodes</h3><p>Let us take a look at some of the important fields used in the following helm release resources:</p><ul><li><p><code>clusterName</code> - This refers to the name of the elasticsearch cluster and has the default value of <code>elasticsearch</code>. Because elasticsearch looks at the cluster name when joining a new node, it is better to set the value of this field to something else.</p></li><li><p><code>nodeGroup</code> - This tells the elasticsearch helm chart whether the node is a master eligible node or a data node</p></li><li><p><code>storageClassName</code> - The kubernetes storage class that you want to use for provisioning the attached volumes. You can skip this field if your cloud provider has a default storageclass object defined</p></li><li><p><code>cpu</code>: The number of CPU cores you want to give to the elasticsearch pod</p></li><li><p><code>memory</code>: The amount of memory you want to allocate to the elasticsearch pod</p></li></ul><h4>Master Eligible Nodes</h4><div class="react-renderer node-codeBlock"><div class="relative my-4"><div class="overflow-hidden rounded-lg border border-border"><div class="flex items-center justify-between border-b border-border px-3 py-1.5"><div class="flex items-center gap-1"></div></div><pre class="!m-0 overflow-x-auto px-4 py-2 !rounded-none"><code class="text-sm font-mono language-c"><div>resource helm_release <span class="hljs-string">"elasticsearch_master"</span> {
+  name       = <span class="hljs-string">"elasticsearch-master"</span>
+  repository = data.helm_repository.stable.metadata[<span class="hljs-number">0</span>].name
+  chart      = <span class="hljs-string">"elasticsearch"</span>
+  version    = <span class="hljs-string">"7.6.1"</span>
+  timeout    = <span class="hljs-number">900</span>
+
+  values = [
+    &lt;&lt;RAW_VALUES
+volumeClaimTemplate:
+  accessModes: [ <span class="hljs-string">"ReadWriteOnce"</span> ]
+  storageClassName: <span class="hljs-string">"my-storage-class"</span>
+  resources:
+    requests:
+      storage: ${var.elasticsearch.master_node.volume_size}Gi
+resources:
+  requests:
+    cpu: ${var.elasticsearch.master_node.cpu}
+    memory: ${var.elasticsearch.data_node.memory}Gi
+roles:
+  master: <span class="hljs-string">"true"</span>
+  ingest: <span class="hljs-string">"false"</span>
+  data: <span class="hljs-string">"false"</span>
+RAW_VALUES
+  ]
+
+  <span class="hljs-built_in">set</span> {
+    name  = <span class="hljs-string">"imageTag"</span>
+    value = <span class="hljs-string">"7.6.2"</span>
+  }
+
+  <span class="hljs-built_in">set</span> {
+    name  = <span class="hljs-string">"clusterName"</span>
+    value = <span class="hljs-string">"elasticsearch-cluster"</span>
+  }
+
+  <span class="hljs-built_in">set</span> {
+    name  = <span class="hljs-string">"nodeGroup"</span>
+    value = <span class="hljs-string">"master"</span>
+  }
+}
+<br class="ProseMirror-trailingBreak"></div></code></pre></div></div></div><h4>Data Nodes</h4><div class="react-renderer node-codeBlock"><div class="relative my-4"><div class="overflow-hidden rounded-lg border border-border"><div class="flex items-center justify-between border-b border-border px-3 py-1.5"><div class="flex items-center gap-1"></div></div><pre class="!m-0 overflow-x-auto px-4 py-2 !rounded-none"><code class="text-sm font-mono language-c"><div>resource helm_release <span class="hljs-string">"elasticsearch_data"</span> {
+  name       = <span class="hljs-string">"elasticsearch-data"</span>
+  repository = data.helm_repository.stable.metadata[<span class="hljs-number">0</span>].name
+  chart      = <span class="hljs-string">"elasticsearch"</span>
+  version    = <span class="hljs-string">"7.6.1"</span>
+  timeout    = <span class="hljs-number">900</span>
+
+  values = [
+    &lt;&lt;RAW_VALUES
+volumeClaimTemplate:
+  accessModes: [ <span class="hljs-string">"ReadWriteOnce"</span> ]
+  storageClassName: <span class="hljs-string">"my-storage-class"</span>
+  resources:
+    requests:
+      storage: ${var.elasticsearch.data_node.volume_size}Gi
+resources:
+  requests:
+    cpu: ${var.elasticsearch.data_node.cpu}
+    memory: ${var.elasticsearch.data_node.memory}Gi
+roles:
+  master: <span class="hljs-string">"false"</span>
+  ingest: <span class="hljs-string">"true"</span>
+  data: <span class="hljs-string">"true"</span>
+RAW_VALUES
+  ]
+
+  <span class="hljs-built_in">set</span> {
+    name  = <span class="hljs-string">"imageTag"</span>
+    value = <span class="hljs-string">"7.6.2"</span>
+  }
+
+  <span class="hljs-built_in">set</span> {
+    name  = <span class="hljs-string">"clusterName"</span>
+    value = <span class="hljs-string">"elasticsearch-cluster"</span>
+  }
+
+  <span class="hljs-built_in">set</span> {
+    name  = <span class="hljs-string">"nodeGroup"</span>
+    value = <span class="hljs-string">"data"</span>
+  }
+}
+<br class="ProseMirror-trailingBreak"></div></code></pre></div></div></div><p>Happy Coding! Cheers :)</p></article><a class="article-back" href="/">← Back to all articles</a></main><footer class="footer"><span>© 2026 Ambar Mehrotra</span><span>All Things Connected</span></footer></body></html>
