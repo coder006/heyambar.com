@@ -1,0 +1,15 @@
+.post-cover {
+  display: block;
+  width: calc(100% + 54px);
+  height: 172px;
+  margin: -27px -27px 27px;
+  border-bottom: 1px solid var(--line);
+  object-fit: cover;
+  object-position: center;
+}
+
+@media (max-width: 760px) {
+  .post-cover {
+    height: 160px;
+  }
+}
